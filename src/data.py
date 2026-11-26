@@ -1,11 +1,11 @@
 
 import os
+
 import torch
 import torch.nn.functional as F
 import torchaudio
 import torchaudio.transforms as T
 from torch.utils.data import Dataset
-
 
 # Основні параметри аудіо
 SAMPLE_RATE = 16000
@@ -64,6 +64,15 @@ def preprocess_audio(waveform, sample_rate):
         )
     else:
         spectrogram = spectrogram[:, :, :SPEC_WIDTH]
+
+    # Логарифмічне перетворення Mel-Spectrogram
+    spectrogram = torch.log(spectrogram.clamp_min(1e-6))
+
+# Стандартизація спектрограми
+    mean = spectrogram.mean()
+    std = spectrogram.std()
+
+    spectrogram = (spectrogram - mean) / (std + 1e-6)
 
     return spectrogram
 

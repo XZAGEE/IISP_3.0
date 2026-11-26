@@ -1,168 +1,148 @@
-
 import argparse
 import json
-import time
-import urllib.request
-import urllib.error
 import statistics
-import csv
-import os
+import time
+from pathlib import Path
+
+import requests
 
 
 def percentile(values, percent):
     values = sorted(values)
+
     position = (len(values) - 1) * percent / 100
 
     lower = int(position)
     upper = min(lower + 1, len(values) - 1)
 
-    if lower == upper:
-        return values[lower]
-
     weight = position - lower
-    return values[lower] * (1 - weight) + values[upper] * weight
 
-
-def send_request(url, audio_path):
-    boundary = "----BenchmarkBoundary123456"
-
-    with open(audio_path, "rb") as file:
-        audio_data = file.read()
-
-    body = (
-        f"--{boundary}\r\n"
-        f'Content-Disposition: form-data; name="file"; filename="{os.path.basename(audio_path)}"\r\n'
-        f"Content-Type: audio/wav\r\n\r\n"
-    ).encode() + audio_data + f"\r\n--{boundary}--\r\n".encode()
-
-    request = urllib.request.Request(
-        url + "/predict",
-        data=body,
-        headers={
-            "Content-Type": f"multipart/form-data; boundary={boundary}",
-            "Accept": "application/json"
-        },
-        method="POST"
+    return (
+        values[lower] * (1 - weight)
+        + values[upper] * weight
     )
 
-    start = time.perf_counter()
 
-    with urllib.request.urlopen(request, timeout=30) as response:
-        result = json.loads(response.read().decode())
+def summarize(values):
+    return {
+        "mean": round(statistics.mean(values), 3),
+        "p50": round(percentile(values, 50), 3),
+        "p95": round(percentile(values, 95), 3),
+    }
 
-    client_latency = (time.perf_counter() - start) * 1000
 
-    return result, client_latency
+def send_request(session, url, audio_path):
+    with audio_path.open("rb") as audio:
+        start = time.perf_counter()
+
+        response = session.post(
+            f"{url.rstrip('/')}/predict",
+            files={
+                "file": (
+                    audio_path.name,
+                    audio,
+                    "audio/wav",
+                )
+            },
+            timeout=30,
+        )
+
+        client_latency = (
+            time.perf_counter() - start
+        ) * 1000
+
+    response.raise_for_status()
+
+    result = response.json()
+
+    return client_latency, float(result["latency_ms"])
 
 
 def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        "--file",
-        default="samples/test_yes.wav"
+        "--url",
+        default="http://localhost:8000",
     )
 
     parser.add_argument(
-        "--iterations",
+        "--file",
+        default="samples/yes.wav",
+    )
+
+    parser.add_argument(
+        "--n",
         type=int,
-        default=30
+        default=100,
     )
 
     parser.add_argument(
         "--warmup",
         type=int,
-        default=5
+        default=10,
+    )
+
+    parser.add_argument(
+        "--out",
+        default="metrics/latency.json",
     )
 
     args = parser.parse_args()
 
-    containers = {
-        "multi": "http://localhost:8000",
-        "single": "http://localhost:8001"
-    }
+    if args.n < 1:
+        parser.error("--n must be at least 1")
 
-    results = {
-        name: {
-            "client": [],
-            "server": []
-        }
-        for name in containers
-    }
+    if args.warmup < 0:
+        parser.error("--warmup cannot be negative")
 
-    print("Перевірка доступності API...")
+    audio_path = Path(args.file)
 
-    for name, url in containers.items():
-        print(f"{name}: {url}")
+    client_times = []
+    server_times = []
 
-    print("\nПрогрів моделей...")
+    with requests.Session() as session:
+        print(f"Warmup: {args.warmup} requests")
 
-    for name, url in containers.items():
         for _ in range(args.warmup):
-            send_request(url, args.file)
+            send_request(
+                session,
+                args.url,
+                audio_path,
+            )
 
-    print("Прогрів завершено.")
-    print(f"\nВиконується {args.iterations} вимірювань...")
+        print(f"Benchmark: {args.n} requests")
 
-    for i in range(args.iterations):
-        # Чергуємо порядок запитів для зменшення впливу порядку
-        order = list(containers.items())
+        for index in range(args.n):
+            client_time, server_time = send_request(
+                session,
+                args.url,
+                audio_path,
+            )
 
-        if i % 2 == 1:
-            order.reverse()
+            client_times.append(client_time)
+            server_times.append(server_time)
 
-        for name, url in order:
-            response, client_time = send_request(url, args.file)
+            if (index + 1) % 10 == 0:
+                print(f"Completed: {index + 1}/{args.n}")
 
-            results[name]["client"].append(client_time)
-            results[name]["server"].append(response["latency_ms"])
+    report = {
+        "requests": args.n,
+        "warmup": args.warmup,
+        "latency_ms": summarize(client_times),
+        "server_latency_ms": summarize(server_times),
+    }
 
-            if response["predicted_class"] != "yes":
-                print(
-                    f"Попередження: {name} передбачив "
-                    f"{response['predicted_class']}"
-                )
+    output = Path(args.out)
+    output.parent.mkdir(parents=True, exist_ok=True)
 
-        print(f"Вимірювання {i + 1}/{args.iterations}")
+    output.write_text(
+        json.dumps(report, indent=4),
+        encoding="utf-8",
+    )
 
-    print("\n========== РЕЗУЛЬТАТИ ==========")
-
-    rows = []
-
-    for name, measurements in results.items():
-        print(f"\n{name.upper()}")
-
-        row = {"container": name}
-
-        for metric, values in measurements.items():
-            mean = statistics.mean(values)
-            p50 = percentile(values, 50)
-            p95 = percentile(values, 95)
-
-            print(f"{metric}:")
-            print(f"  Mean: {mean:.2f} ms")
-            print(f"  P50:  {p50:.2f} ms")
-            print(f"  P95:  {p95:.2f} ms")
-
-            row[f"{metric}_mean"] = round(mean, 2)
-            row[f"{metric}_p50"] = round(p50, 2)
-            row[f"{metric}_p95"] = round(p95, 2)
-
-        rows.append(row)
-
-    os.makedirs("results", exist_ok=True)
-
-    with open(
-        "results/benchmark.csv",
-        "w",
-        newline="",
-        encoding="utf-8"
-    ) as file:
-        writer = csv.DictWriter(file, fieldnames=rows[0].keys())
-        writer.writeheader()
-        writer.writerows(rows)
-
-    print("\nРезультати збережено у results/benchmark.csv")
+    print(json.dumps(report, indent=4))
+    print(f"Report saved: {output}")
 
 
 if __name__ == "__main__":

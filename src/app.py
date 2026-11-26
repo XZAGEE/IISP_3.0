@@ -1,14 +1,16 @@
 
-import os
 import io
 import json
+import os
 import time
+from typing import Annotated
+
 import torch
 import torchaudio
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, File, HTTPException, UploadFile
+
 from src.data import preprocess_audio
 from src.model import AudioCNN
-
 
 app = FastAPI(
     title="Speech Commands API",
@@ -69,7 +71,7 @@ def model_info():
 
 
 @app.post("/predict")
-async def predict(file: UploadFile = File(...)):
+async def predict(file: Annotated[UploadFile, File()]):
     if model is None:
         raise HTTPException(status_code=503, detail="Модель ще не завантажена")
 
@@ -86,8 +88,11 @@ async def predict(file: UploadFile = File(...)):
     try:
         waveform, sample_rate = torchaudio.load(io.BytesIO(audio_bytes))
         spectrogram = preprocess_audio(waveform, sample_rate)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Не вдалося прочитати WAV-файл")
+    except (RuntimeError, ValueError, OSError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Не вдалося прочитати WAV-файл"
+        ) from exc
 
     input_tensor = spectrogram.unsqueeze(0).to(device)
 

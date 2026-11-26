@@ -1,14 +1,15 @@
 
-import os
-import json
-import random
 import argparse
+import json
+import os
+import random
+
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader
 from sklearn.model_selection import train_test_split
+from torch import nn, optim
+from torch.utils.data import DataLoader
+
 from src.data import CLASSES, SpeechCommandsDataset, load_file_list
 from src.model import AudioCNN
 
@@ -20,12 +21,20 @@ def set_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
 
+    torch.use_deterministic_algorithms(True)
+
+    torch.set_num_threads(2)
+
 
 def train_model(model, train_loader, device, epochs):
     """Навчає модель протягом заданої кількості епох."""
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.AdamW(
+        model.parameters(),
+        lr=0.001,
+        weight_decay=0.0001,
+    )
 
     for epoch in range(epochs):
         model.train()
@@ -113,7 +122,7 @@ def main():
     parser.add_argument(
         "--dataset",
         type=str,
-        default="dataset",
+        default="ci_dataset",
         help="Директорія з навчальним датасетом"
     )
 
@@ -222,6 +231,10 @@ def main():
 
     metrics = {
         "accuracy": round(accuracy, 4),
+        "accuracy_percent": round(accuracy * 100, 2),
+        "model_size_kb": round(
+            os.path.getsize(model_path) / 1024, 2
+        ),
         "epochs": args.epochs,
         "seed": args.seed,
         "classes": args.classes,

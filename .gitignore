@@ -224,3 +224,9 @@ __marimo__/
 
 # Full dataset (use ci_dataset in GitHub Actions)
 /dataset/
+# Generated ML artifacts
+/artifacts/
+/metrics/
+
+# Generated benchmark results
+/results/

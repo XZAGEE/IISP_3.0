@@ -1,0 +1,23 @@
+{
+    "yes.wav": {
+        "source": "yes/332d33b1_nohash_0.wav",
+        "sha256": "af91e6e664bef0c2801c0f3539952058b14b695731d40fb96d812bf2d66ec597",
+        "speaker_in_ci": false
+    },
+    "no.wav": {
+        "source": "no/caa4779f_nohash_0.wav",
+        "sha256": "3ca6e20c97d7eb1004bd2127687848a9115ccc776ac326db92ec0886f5fbbea4",
+        "speaker_in_ci": false,
+        "replacement_reason": "Original recording was unintelligible"
+    },
+    "up.wav": {
+        "source": "up/845f8553_nohash_0.wav",
+        "sha256": "155dd7942215a70b17928e09e034624c2f1de5e8a538c226daf094c37b16dbc6",
+        "speaker_in_ci": false
+    },
+    "down.wav": {
+        "source": "down/6bf5baf3_nohash_0.wav",
+        "sha256": "6fcea43a0789d1535aa948bca53266684a4052448a2bfbdf7fef522c0d7e2946",
+        "speaker_in_ci": false
+    }
+}
